@@ -45,6 +45,8 @@ uv run minigame-collection
 
 ## Development
 
+Contributor and agent guidance lives in [AGENTS.md](AGENTS.md).
+
 Run tests:
 
 ```bash
