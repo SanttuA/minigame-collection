@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+      - fix/**
+      - chore/**
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      SDL_VIDEODRIVER: dummy
+      PRE_COMMIT_HOME: .pre-commit-cache
+      UV_LINK_MODE: copy
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Run pre-commit checks
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+      - name: Run pytest
+        run: uv run pytest
+
+      - name: Smoke test app startup
+        run: |
+          uv run python - <<'PY'
+          import threading
+          import time
+          import pygame
+          from minigame_collection.app import run
+
+          def stop_soon() -> None:
+              time.sleep(0.2)
+              pygame.event.post(pygame.event.Event(pygame.QUIT))
+
+          threading.Thread(target=stop_soon, daemon=True).start()
+          raise SystemExit(run())
+          PY
