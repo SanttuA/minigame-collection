@@ -68,3 +68,26 @@ Run all hooks manually:
 ```bash
 uv run pre-commit run --all-files
 ```
+
+## Git Workflow
+
+Use short-lived branches for changes instead of committing directly to `main`.
+
+Suggested branch names:
+
+- `feature/snake-polish`
+- `fix/collision-bug`
+- `chore/ci-cleanup`
+
+CI runs automatically on pushes to `main`, `feature/**`, `fix/**`, and `chore/**`, plus pull requests targeting `main`.
+
+Typical flow:
+
+```bash
+git switch -c feature/my-change
+git add .
+git commit -m "Add my change"
+git push -u origin feature/my-change
+```
+
+Then open a pull request into `main`.
