@@ -59,7 +59,7 @@ def test_top_scores_are_filtered_by_game_id(tmp_path: Path) -> None:
     store = SQLiteScoreStore(tmp_path / "scores.db")
 
     assert store.save_score("snake", "cobra", 12) is True
-    assert store.save_score("tetris", "block", 99) is True
+    assert store.save_score("blockfall", "block", 99) is True
 
     snake_scores = store.top_scores("snake")
 
