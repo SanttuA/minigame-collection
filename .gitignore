@@ -26,6 +26,7 @@ build/
 dist/
 *.egg-info/
 .eggs/
+scores.db
 
 # Editor and OS files
 .DS_Store

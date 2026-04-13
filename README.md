@@ -41,7 +41,9 @@ uv run minigame-collection
 
 - `Arrows` / `WASD`: move the snake
 - `Esc`: return to the menu
-- `Enter`: restart after game over
+- qualifying scores prompt for a short nickname on game over
+- `Enter`: save a qualifying score, or restart from the results screen
+- `Esc`: skip nickname entry, or return to the menu from the results screen
 
 ## Development
 
