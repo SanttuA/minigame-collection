@@ -8,7 +8,7 @@ import pygame
 from ...config import APP_CONFIG
 from ...scene import SceneCommand, ShowMenu
 from ...scores import LEADERBOARD_LIMIT, LeaderboardStore, ScoreEntry
-from ...ui import fit_font, wrap_text
+from ...ui import fit_font, fit_font_to_lines, wrap_text
 from .logic import BOARD_COLUMNS, BOARD_ROWS, BlockfallGame, FallingPiece, GridPoint, piece_cells
 
 BACKGROUND = (16, 10, 26)
@@ -29,7 +29,6 @@ BLOCKFALL_GAME_ID = "blockfall"
 BOARD_CELL_SIZE = 24
 BOARD_ORIGIN = (52, 132)
 SIDE_PANEL = pygame.Rect(332, 132, 360, 480)
-PREVIEW_BOX = pygame.Rect(350, 302, 146, 124)
 NICKNAME_MAX_LENGTH = 8
 ALLOWED_NICKNAME_CHARS = {" ", "-", "_"}
 PIECE_COLORS = {
@@ -70,10 +69,6 @@ class BlockfallScene:
         self._leaderboard: list[ScoreEntry] = []
         self._status_message: str | None = None
         self._title_font = pygame.font.Font(None, 60)
-        self._stat_label_font = pygame.font.Font(None, 26)
-        self._stat_value_font = pygame.font.Font(None, 44)
-        self._panel_title_font = pygame.font.Font(None, 34)
-        self._panel_font = pygame.font.Font(None, 28)
         self._overlay_title_font = pygame.font.Font(None, 68)
         self._overlay_font = pygame.font.Font(None, 32)
         self._leaderboard_title_font = pygame.font.Font(None, 34)
@@ -282,57 +277,124 @@ class BlockfallScene:
         pygame.draw.rect(surface, PANEL_BACKGROUND, SIDE_PANEL, border_radius=24)
         pygame.draw.rect(surface, PANEL_BORDER, SIDE_PANEL, width=2, border_radius=24)
 
-        self._draw_stat(
-            surface,
-            label="Score",
-            value=str(self._game.state.score),
-            top=SIDE_PANEL.y + 24,
-        )
-        self._draw_stat(
-            surface,
-            label="Lines",
-            value=str(self._game.state.lines_cleared),
-            top=SIDE_PANEL.y + 104,
-        )
-        self._draw_stat(
-            surface,
-            label="Level",
-            value=str(self._game.state.level),
-            top=SIDE_PANEL.y + 184,
-        )
+        content_rect = SIDE_PANEL.inflate(-36, -32)
+        stats_bottom = self._draw_stats_row(surface, content_rect)
+        cursor_y = stats_bottom + 18
 
-        preview_title = self._panel_title_font.render("Next Piece", True, TEXT_MAIN)
-        surface.blit(preview_title, (PREVIEW_BOX.x, PREVIEW_BOX.y - 32))
-        pygame.draw.rect(surface, INPUT_BACKGROUND, PREVIEW_BOX, border_radius=18)
-        pygame.draw.rect(surface, PANEL_BORDER, PREVIEW_BOX, width=2, border_radius=18)
-        self._draw_preview_piece(surface, self._game.state.next_kind)
+        preview_title_font = fit_font(
+            "Next Piece",
+            max_width=content_rect.width,
+            starting_size=30,
+            min_size=22,
+        )
+        preview_title = preview_title_font.render("Next Piece", True, TEXT_MAIN)
+        surface.blit(preview_title, (content_rect.x, cursor_y))
+        cursor_y += preview_title.get_height() + 10
 
-        controls_title = self._panel_title_font.render("Controls", True, TEXT_MAIN)
-        surface.blit(controls_title, (PREVIEW_BOX.x, PREVIEW_BOX.bottom + 22))
+        preview_box = pygame.Rect(content_rect.x, cursor_y, 132, 108)
+        pygame.draw.rect(surface, INPUT_BACKGROUND, preview_box, border_radius=18)
+        pygame.draw.rect(surface, PANEL_BORDER, preview_box, width=2, border_radius=18)
+        self._draw_preview_piece(surface, preview_box, self._game.state.next_kind)
+
+        cursor_y = preview_box.bottom + 16
+        controls_title_font = fit_font(
+            "Controls",
+            max_width=content_rect.width,
+            starting_size=30,
+            min_size=22,
+        )
+        controls_title = controls_title_font.render("Controls", True, TEXT_MAIN)
+        surface.blit(controls_title, (content_rect.x, cursor_y))
+        cursor_y += controls_title.get_height() + 8
 
         controls = [
-            "Left / A  Move left",
-            "Right / D  Move right",
-            "Down / S  Soft drop",
-            "Up / W  Rotate",
-            "Esc  Return to menu",
+            "Left / A: Move left",
+            "Right / D: Move right",
+            "Down / S: Soft drop",
+            "Up / W: Rotate",
+            "Esc: Return to menu",
         ]
-        top = PREVIEW_BOX.bottom + 58
-        for index, line in enumerate(controls):
-            label = self._panel_font.render(line, True, TEXT_SOFT)
-            surface.blit(label, (PREVIEW_BOX.x, top + index * 30))
-
         speed_text = f"Gravity {gravity_interval_for_level(self._game.state.level):.2f}s"
-        speed = self._panel_font.render(speed_text, True, TEXT_MUTED)
-        surface.blit(speed, (PREVIEW_BOX.x, SIDE_PANEL.bottom - 42))
+        speed_font = fit_font(
+            speed_text,
+            max_width=content_rect.width,
+            starting_size=24,
+            min_size=16,
+        )
+        speed = speed_font.render(speed_text, True, TEXT_MUTED)
+        controls_area_height = max(0, content_rect.bottom - speed.get_height() - cursor_y - 12)
+        controls_font = fit_font_to_lines(
+            controls,
+            max_width=content_rect.width,
+            max_height=controls_area_height,
+            starting_size=24,
+            min_size=15,
+        )
+        line_height = controls_font.get_linesize()
+        for index, line in enumerate(controls):
+            label = controls_font.render(line, True, TEXT_SOFT)
+            surface.blit(label, (content_rect.x, cursor_y + index * line_height))
 
-    def _draw_stat(self, surface: pygame.Surface, *, label: str, value: str, top: int) -> None:
-        label_surface = self._stat_label_font.render(label.upper(), True, TEXT_MUTED)
-        value_surface = self._stat_value_font.render(value, True, TEXT_MAIN)
-        surface.blit(label_surface, (SIDE_PANEL.x + 18, top))
-        surface.blit(value_surface, (SIDE_PANEL.x + 18, top + 22))
+        surface.blit(
+            speed,
+            (content_rect.x, content_rect.bottom - speed.get_height()),
+        )
 
-    def _draw_preview_piece(self, surface: pygame.Surface, kind: str) -> None:
+    def _draw_stats_row(self, surface: pygame.Surface, content_rect: pygame.Rect) -> int:
+        gap = 10
+        stat_width = (content_rect.width - gap * 2) // 3
+        stat_height = 88
+        top = content_rect.y
+        entries = [
+            ("Score", str(self._game.state.score)),
+            ("Lines", str(self._game.state.lines_cleared)),
+            ("Level", str(self._game.state.level)),
+        ]
+
+        for index, (label, value) in enumerate(entries):
+            left = content_rect.x + index * (stat_width + gap)
+            self._draw_stat_card(
+                surface,
+                rect=pygame.Rect(left, top, stat_width, stat_height),
+                label=label,
+                value=value,
+            )
+
+        return top + stat_height
+
+    def _draw_stat_card(
+        self,
+        surface: pygame.Surface,
+        *,
+        rect: pygame.Rect,
+        label: str,
+        value: str,
+    ) -> None:
+        pygame.draw.rect(surface, INPUT_BACKGROUND, rect, border_radius=16)
+        pygame.draw.rect(surface, PANEL_BORDER, rect, width=2, border_radius=16)
+        label_font = fit_font(
+            label.upper(),
+            max_width=rect.width - 20,
+            starting_size=24,
+            min_size=16,
+        )
+        value_font = fit_font(
+            value,
+            max_width=rect.width - 20,
+            starting_size=40,
+            min_size=22,
+        )
+        label_surface = label_font.render(label.upper(), True, TEXT_MUTED)
+        value_surface = value_font.render(value, True, TEXT_MAIN)
+        surface.blit(label_surface, (rect.x + 10, rect.y + 10))
+        surface.blit(value_surface, (rect.x + 10, rect.y + 34))
+
+    def _draw_preview_piece(
+        self,
+        surface: pygame.Surface,
+        preview_box: pygame.Rect,
+        kind: str,
+    ) -> None:
         preview_piece = FallingPiece(kind=kind, rotation=0, position=GridPoint(0, 0))
         cells = piece_cells(preview_piece)
         min_x = min(cell.x for cell in cells)
@@ -341,8 +403,8 @@ class BlockfallScene:
         max_y = max(cell.y for cell in cells)
         width = (max_x - min_x + 1) * 18
         height = (max_y - min_y + 1) * 18
-        origin_x = PREVIEW_BOX.centerx - width // 2
-        origin_y = PREVIEW_BOX.centery - height // 2
+        origin_x = preview_box.centerx - width // 2
+        origin_y = preview_box.centery - height // 2
 
         for cell in cells:
             rect = pygame.Rect(
