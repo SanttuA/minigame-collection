@@ -7,11 +7,13 @@ from .games import build_game_registry
 from .registry import GameRegistry
 from .scene import LaunchGame, QuitApp, Scene, SceneCommand, ShowMenu
 from .scenes.menu import MainMenuScene
+from .scores import SQLiteScoreStore, resolve_scores_database_path
 
 
 class GameApp:
     def __init__(self) -> None:
-        self._registry: GameRegistry = build_game_registry()
+        self._score_store = SQLiteScoreStore(resolve_scores_database_path())
+        self._registry: GameRegistry = build_game_registry(self._score_store)
         self._scene: Scene | None = None
 
     def _create_menu_scene(self) -> MainMenuScene:
