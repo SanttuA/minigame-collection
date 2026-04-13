@@ -61,7 +61,7 @@ class MainMenuScene:
             min_size=62,
         )
         title = title_font.render(title_text, True, TEXT_MAIN)
-        subtitle_text = "Arcade-sized projects, one launcher. Start with Snake."
+        subtitle_text = "Arcade-sized projects, one launcher. Pick a cabinet and jump in."
         subtitle_font = fit_font(
             subtitle_text,
             max_width=APP_CONFIG.window_width - 92,
