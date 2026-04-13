@@ -6,6 +6,7 @@ import pygame
 
 from ...config import APP_CONFIG
 from ...scene import SceneCommand, ShowMenu
+from ...ui import fit_font, wrap_text
 from .logic import Direction, Point, SnakeGame
 
 BACKGROUND = (8, 15, 28)
@@ -105,11 +106,14 @@ class SnakeScene:
             True,
             TEXT_MAIN,
         )
-        controls = self._meta_font.render(
-            "Arrows / WASD to move   •   Esc to menu",
-            True,
-            TEXT_MUTED,
+        controls_text = "Arrows / WASD to move   •   Esc to menu"
+        controls_font = fit_font(
+            controls_text,
+            max_width=panel_rect.width - 288,
+            starting_size=26,
+            min_size=18,
         )
+        controls = controls_font.render(controls_text, True, TEXT_MUTED)
         speed = self._meta_font.render(
             f"Step {speed_interval_for_score(self._game.state.score):.2f}s",
             True,
@@ -162,7 +166,7 @@ class SnakeScene:
         overlay.fill((*OVERLAY, 188))
         surface.blit(overlay, (0, 0))
 
-        card_rect = pygame.Rect(126, 205, 500, 210)
+        card_rect = pygame.Rect(126, 192, 500, 236)
         pygame.draw.rect(surface, (17, 29, 46), card_rect, border_radius=28)
         pygame.draw.rect(surface, ACCENT_SOFT, card_rect, width=2, border_radius=28)
 
@@ -172,15 +176,25 @@ class SnakeScene:
             True,
             TEXT_MAIN,
         )
-        prompt = self._overlay_font.render(
-            "Press Enter to restart or Esc to return to menu",
-            True,
-            TEXT_MUTED,
+        prompt_text = "Press Enter to restart or Esc to return to menu"
+        prompt_font = fit_font(
+            prompt_text,
+            max_width=card_rect.width - 64,
+            starting_size=34,
+            min_size=24,
         )
+        prompt_lines = wrap_text(prompt_text, prompt_font, card_rect.width - 64)
 
         surface.blit(title, title.get_rect(center=(card_rect.centerx, card_rect.y + 62)))
         surface.blit(score, score.get_rect(center=(card_rect.centerx, card_rect.y + 122)))
-        surface.blit(prompt, prompt.get_rect(center=(card_rect.centerx, card_rect.y + 168)))
+        prompt_top = card_rect.y + 162
+        line_height = prompt_font.get_linesize()
+        for index, line in enumerate(prompt_lines):
+            prompt = prompt_font.render(line, True, TEXT_MUTED)
+            surface.blit(
+                prompt,
+                prompt.get_rect(center=(card_rect.centerx, prompt_top + index * line_height)),
+            )
 
     def _cell_rect(self, point: Point) -> pygame.Rect:
         origin_x, origin_y = APP_CONFIG.playfield_origin
