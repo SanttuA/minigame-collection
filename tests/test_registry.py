@@ -9,7 +9,7 @@ def test_registry_exposes_snake(tmp_path: Path) -> None:
 
     games = registry.list_games()
 
-    assert len(games) == 1
-    assert games[0].id == "snake"
-    assert games[0].title == "Snake"
+    assert [game.id for game in games] == ["snake", "breakout"]
+    assert [game.title for game in games] == ["Snake", "Breakout"]
     assert callable(games[0].create_scene)
+    assert callable(games[1].create_scene)

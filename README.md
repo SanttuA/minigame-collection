@@ -1,6 +1,6 @@
 # Minigame Collection
 
-A small desktop minigame collection built with `pygame` and managed with `uv`. The first playable game is Snake, launched from a reusable collection menu so more games can be added later without changing the app entrypoint.
+A small desktop minigame collection built with `pygame` and managed with `uv`. Snake and Breakout are launched from a reusable collection menu so more games can be added later without changing the app entrypoint.
 
 ## Requirements
 
@@ -44,6 +44,15 @@ uv run minigame-collection
 - qualifying scores prompt for a short nickname on game over
 - `Enter`: save a qualifying score, or restart from the results screen
 - `Esc`: skip nickname entry, or return to the menu from the results screen
+
+### Breakout
+
+- `Left` / `A`: move the paddle left
+- `Right` / `D`: move the paddle right
+- `Space` / `Enter`: launch the ball when waiting to serve
+- `Esc`: return to the menu
+- missing the ball costs one of three lives
+- qualifying scores prompt for a short nickname on the results flow
 
 ## Development
 
