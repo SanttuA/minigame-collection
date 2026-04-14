@@ -53,9 +53,9 @@ uv run minigame-collection
 
 ### Blockfall
 
-- `Left` / `A`: move left
-- `Right` / `D`: move right
-- `Down` / `S`: soft drop
+- `Left` / `A`: move left, or hold to keep sliding left
+- `Right` / `D`: move right, or hold to keep sliding right
+- `Down` / `S`: hold for a faster soft drop
 - `Up` / `W`: rotate clockwise
 - `Esc`: return to the menu
 - qualifying scores prompt for a short nickname on game over

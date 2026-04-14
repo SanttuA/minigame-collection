@@ -40,6 +40,10 @@ PIECE_COLORS = {
     "T": (191, 119, 255),
     "Z": (255, 103, 111),
 }
+HORIZONTAL_REPEAT_DELAY = 0.16
+HORIZONTAL_REPEAT_INTERVAL = 0.06
+SOFT_DROP_INTERVAL = 0.04
+TIMING_EPSILON = 1e-9
 
 
 def gravity_interval_for_level(level: int) -> float:
@@ -64,10 +68,16 @@ class BlockfallScene:
         self._game = BlockfallGame()
         self._mode = BlockfallSceneMode.PLAYING
         self._gravity_accumulator = 0.0
+        self._soft_drop_timer = SOFT_DROP_INTERVAL
         self._elapsed = 0.0
         self._nickname = ""
         self._leaderboard: list[ScoreEntry] = []
         self._status_message: str | None = None
+        self._held_left = False
+        self._held_right = False
+        self._held_down = False
+        self._horizontal_repeat_timers = {-1: 0.0, 1: 0.0}
+        self._horizontal_priority: list[int] = []
         self._title_font = pygame.font.Font(None, 60)
         self._overlay_title_font = pygame.font.Font(None, 68)
         self._overlay_font = pygame.font.Font(None, 32)
@@ -85,11 +95,12 @@ class BlockfallScene:
         return tuple(self._leaderboard)
 
     def handle_event(self, event: pygame.event.Event) -> SceneCommand:
+        if self._mode is BlockfallSceneMode.PLAYING:
+            if event.type not in (pygame.KEYDOWN, pygame.KEYUP):
+                return None
+            return self._handle_playing_event(event)
         if event.type != pygame.KEYDOWN:
             return None
-
-        if self._mode is BlockfallSceneMode.PLAYING:
-            return self._handle_playing_event(event)
         if self._mode is BlockfallSceneMode.ENTERING_NAME:
             return self._handle_name_entry_event(event)
         return self._handle_results_event(event)
@@ -102,12 +113,15 @@ class BlockfallScene:
             self._begin_post_game_flow()
             return None
 
-        self._gravity_accumulator += delta_seconds
-        interval = gravity_interval_for_level(self._game.state.level)
-        while self._gravity_accumulator >= interval and self._game.state.alive:
-            self._gravity_accumulator -= interval
-            self._game.step()
-            interval = gravity_interval_for_level(self._game.state.level)
+        self._update_horizontal_input(delta_seconds)
+        if not self._game.state.alive:
+            self._begin_post_game_flow()
+            return None
+
+        if self._held_down:
+            self._update_soft_drop(delta_seconds)
+        else:
+            self._update_gravity(delta_seconds)
 
         if not self._game.state.alive:
             self._begin_post_game_flow()
@@ -123,20 +137,37 @@ class BlockfallScene:
             self._draw_game_over_overlay(surface)
 
     def _handle_playing_event(self, event: pygame.event.Event) -> SceneCommand:
+        if event.type == pygame.KEYUP:
+            self._handle_playing_keyup(event)
+            return None
+
         if event.key == pygame.K_ESCAPE:
+            self._reset_held_inputs()
             return ShowMenu()
         if event.key in (pygame.K_LEFT, pygame.K_a):
-            self._game.move_horizontal(-1)
+            self._press_horizontal(-1)
         elif event.key in (pygame.K_RIGHT, pygame.K_d):
-            self._game.move_horizontal(1)
+            self._press_horizontal(1)
         elif event.key in (pygame.K_DOWN, pygame.K_s):
-            self._game.soft_drop()
+            if not self._held_down:
+                self._held_down = True
+                self._gravity_accumulator = 0.0
+                self._soft_drop_timer = SOFT_DROP_INTERVAL
         elif event.key in (pygame.K_UP, pygame.K_w):
             self._game.rotate_clockwise()
 
         if not self._game.state.alive:
             self._begin_post_game_flow()
         return None
+
+    def _handle_playing_keyup(self, event: pygame.event.Event) -> None:
+        if event.key in (pygame.K_LEFT, pygame.K_a):
+            self._release_horizontal(-1)
+        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+            self._release_horizontal(1)
+        elif event.key in (pygame.K_DOWN, pygame.K_s):
+            self._held_down = False
+            self._soft_drop_timer = SOFT_DROP_INTERVAL
 
     def _handle_name_entry_event(self, event: pygame.event.Event) -> SceneCommand:
         if event.key == pygame.K_ESCAPE:
@@ -165,6 +196,7 @@ class BlockfallScene:
         return None
 
     def _begin_post_game_flow(self) -> None:
+        self._reset_held_inputs()
         self._refresh_leaderboard()
         self._status_message = None
         if self._should_prompt_for_name():
@@ -215,11 +247,114 @@ class BlockfallScene:
         self._nickname = ""
         self._leaderboard = []
         self._status_message = None
+        self._reset_held_inputs()
 
     def _is_allowed_nickname_character(self, character: str) -> bool:
         return character.isascii() and (
             character.isalnum() or character in ALLOWED_NICKNAME_CHARS
         )
+
+    def _update_gravity(self, delta_seconds: float) -> None:
+        self._gravity_accumulator += delta_seconds
+        interval = gravity_interval_for_level(self._game.state.level)
+        while self._gravity_accumulator + TIMING_EPSILON >= interval and self._game.state.alive:
+            self._gravity_accumulator -= interval
+            self._game.step()
+            interval = gravity_interval_for_level(self._game.state.level)
+
+    def _update_soft_drop(self, delta_seconds: float) -> None:
+        self._soft_drop_timer -= delta_seconds
+        while self._soft_drop_timer <= TIMING_EPSILON and self._game.state.alive:
+            previous_piece = self._game.state.active_piece
+            self._game.soft_drop()
+            self._soft_drop_timer += SOFT_DROP_INTERVAL
+
+            if self._spawned_new_piece(previous_piece):
+                self._soft_drop_timer = SOFT_DROP_INTERVAL
+                break
+
+    def _spawned_new_piece(self, previous_piece: FallingPiece | None) -> bool:
+        current_piece = self._game.state.active_piece
+        if previous_piece is None or current_piece is None:
+            return False
+        if current_piece.position.y != 0:
+            return False
+        return (
+            current_piece.kind != previous_piece.kind
+            or current_piece.rotation != previous_piece.rotation
+            or current_piece.position.x != previous_piece.position.x
+        )
+
+    def _update_horizontal_input(self, delta_seconds: float) -> None:
+        active_direction = self._active_horizontal_direction()
+        if active_direction is None:
+            return
+
+        timer = self._horizontal_repeat_timers[active_direction] - delta_seconds
+        while timer <= TIMING_EPSILON and self._game.state.alive:
+            self._game.move_horizontal(active_direction)
+            timer += HORIZONTAL_REPEAT_INTERVAL
+        self._horizontal_repeat_timers[active_direction] = timer
+
+        inactive_direction = -active_direction
+        if self._is_horizontal_held(inactive_direction):
+            self._horizontal_repeat_timers[inactive_direction] = HORIZONTAL_REPEAT_DELAY
+
+    def _press_horizontal(self, direction: int) -> None:
+        if self._is_horizontal_held(direction):
+            return
+
+        self._set_horizontal_held(direction, True)
+        self._activate_horizontal_direction(direction)
+
+    def _release_horizontal(self, direction: int) -> None:
+        if not self._is_horizontal_held(direction):
+            return
+
+        was_active = self._active_horizontal_direction() == direction
+        self._set_horizontal_held(direction, False)
+        self._horizontal_repeat_timers[direction] = 0.0
+        self._remove_horizontal_priority(direction)
+
+        opposite_direction = -direction
+        if was_active and self._is_horizontal_held(opposite_direction):
+            self._activate_horizontal_direction(opposite_direction)
+
+    def _activate_horizontal_direction(self, direction: int) -> None:
+        self._remove_horizontal_priority(direction)
+        self._horizontal_priority.append(direction)
+        self._game.move_horizontal(direction)
+        self._horizontal_repeat_timers[direction] = HORIZONTAL_REPEAT_DELAY
+
+    def _active_horizontal_direction(self) -> int | None:
+        for direction in reversed(self._horizontal_priority):
+            if self._is_horizontal_held(direction):
+                return direction
+        return None
+
+    def _is_horizontal_held(self, direction: int) -> bool:
+        if direction < 0:
+            return self._held_left
+        return self._held_right
+
+    def _set_horizontal_held(self, direction: int, held: bool) -> None:
+        if direction < 0:
+            self._held_left = held
+            return
+        self._held_right = held
+
+    def _remove_horizontal_priority(self, direction: int) -> None:
+        self._horizontal_priority = [
+            candidate for candidate in self._horizontal_priority if candidate != direction
+        ]
+
+    def _reset_held_inputs(self) -> None:
+        self._held_left = False
+        self._held_right = False
+        self._held_down = False
+        self._soft_drop_timer = SOFT_DROP_INTERVAL
+        self._horizontal_repeat_timers = {-1: 0.0, 1: 0.0}
+        self._horizontal_priority = []
 
     def _draw_background(self, surface: pygame.Surface) -> None:
         pulse = (math.sin(self._elapsed * 1.6) + 1.0) / 2.0
@@ -308,9 +443,9 @@ class BlockfallScene:
         cursor_y += controls_title.get_height() + 8
 
         controls = [
-            "Left / A: Move left",
-            "Right / D: Move right",
-            "Down / S: Soft drop",
+            "Left / A: Hold to move left",
+            "Right / D: Hold to move right",
+            "Down / S: Hold for fast drop",
             "Up / W: Rotate",
             "Esc: Return to menu",
         ]

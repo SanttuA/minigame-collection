@@ -6,6 +6,7 @@ import pygame
 import pytest
 
 from minigame_collection.games.blockfall import (
+    BOARD_ROWS,
     BlockfallScene,
     BlockfallSceneMode,
     BlockfallState,
@@ -42,6 +43,7 @@ class FakeScoreStore:
 def make_state(
     *,
     active_piece: FallingPiece | None,
+    next_kind: str = "I",
     score: int = 0,
     lines_cleared: int = 0,
     level: int = 0,
@@ -50,7 +52,7 @@ def make_state(
     return BlockfallState(
         board=empty_board(),
         active_piece=active_piece,
-        next_kind="I",
+        next_kind=next_kind,
         score=score,
         lines_cleared=lines_cleared,
         level=level,
@@ -60,6 +62,10 @@ def make_state(
 
 def key_event(key: int, unicode: str = "") -> pygame.event.Event:
     return pygame.event.Event(pygame.KEYDOWN, key=key, unicode=unicode)
+
+
+def keyup_event(key: int) -> pygame.event.Event:
+    return pygame.event.Event(pygame.KEYUP, key=key)
 
 
 @pytest.fixture(autouse=True)
@@ -117,3 +123,138 @@ def test_escape_from_active_play_returns_to_menu() -> None:
     command = scene.handle_event(key_event(pygame.K_ESCAPE))
 
     assert isinstance(command, ShowMenu)
+
+
+def test_horizontal_press_moves_immediately() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+
+    scene.handle_event(key_event(pygame.K_LEFT))
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(2, 0))
+
+
+def test_holding_horizontal_direction_repeats_after_delay_then_interval() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+
+    scene.handle_event(key_event(pygame.K_LEFT))
+    scene.update(0.15)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(2, 0))
+
+    scene.update(0.01)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(1, 0))
+
+    scene.update(0.06)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(0, 0))
+
+
+def test_keyup_stops_horizontal_repeat() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+
+    scene.handle_event(key_event(pygame.K_RIGHT))
+    scene.update(0.16)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(5, 0))
+
+    scene.handle_event(keyup_event(pygame.K_RIGHT))
+    scene.update(0.20)
+
+    assert scene._game.state.active_piece is not None
+    assert scene._game.state.active_piece.position.x == 5
+
+
+def test_latest_held_horizontal_direction_wins_and_release_falls_back() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(4, 0)))
+
+    scene.handle_event(key_event(pygame.K_LEFT))
+    scene.handle_event(key_event(pygame.K_RIGHT))
+    scene.update(0.15)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(4, 0))
+
+    scene.handle_event(keyup_event(pygame.K_RIGHT))
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 0))
+
+    scene.update(0.15)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 0))
+
+    scene.update(0.01)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(2, 0))
+
+
+def test_holding_down_uses_faster_drop_than_normal_gravity() -> None:
+    slow_scene = BlockfallScene(FakeScoreStore())
+    slow_scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+
+    fast_scene = BlockfallScene(FakeScoreStore())
+    fast_scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+    fast_scene.handle_event(key_event(pygame.K_DOWN))
+
+    slow_scene.update(0.12)
+    fast_scene.update(0.12)
+
+    assert slow_scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 0))
+    assert fast_scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 3))
+
+
+def test_holding_down_starts_a_fresh_soft_drop_timer() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+
+    scene.update(0.30)
+    scene.handle_event(key_event(pygame.K_DOWN))
+    scene.update(0.03)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 0))
+
+    scene.update(0.01)
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 1))
+
+
+def test_holding_down_does_not_pull_new_piece_past_spawn_position() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(
+        active_piece=FallingPiece("O", 0, GridPoint(3, BOARD_ROWS - 3)),
+        next_kind="I",
+    )
+    scene.handle_event(key_event(pygame.K_DOWN))
+
+    scene.update(0.12)
+
+    assert scene._game.state.active_piece == FallingPiece("I", 0, GridPoint(3, 0))
+
+
+def test_held_input_is_ignored_outside_play_and_restart_clears_it() -> None:
+    scene = BlockfallScene(FakeScoreStore())
+    scene._game.state = make_state(active_piece=FallingPiece("O", 0, GridPoint(3, 0)))
+    scene._held_left = True
+    scene._held_down = True
+    scene._horizontal_repeat_timers[-1] = 0.02
+    scene._horizontal_priority = [-1]
+    scene._mode = BlockfallSceneMode.GAME_OVER_RESULTS
+
+    scene.handle_event(key_event(pygame.K_LEFT))
+    scene.handle_event(keyup_event(pygame.K_LEFT))
+
+    assert scene._game.state.active_piece == FallingPiece("O", 0, GridPoint(3, 0))
+    assert scene._held_left is True
+    assert scene._held_down is True
+
+    scene.handle_event(key_event(pygame.K_RETURN, "\r"))
+
+    assert scene.mode is BlockfallSceneMode.PLAYING
+    assert scene._held_left is False
+    assert scene._held_right is False
+    assert scene._held_down is False
+    assert scene._horizontal_repeat_timers == {-1: 0.0, 1: 0.0}
+    assert scene._horizontal_priority == []
