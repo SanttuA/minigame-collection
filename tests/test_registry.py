@@ -9,7 +9,6 @@ def test_registry_exposes_snake(tmp_path: Path) -> None:
 
     games = registry.list_games()
 
-    assert [game.id for game in games] == ["snake", "breakout"]
-    assert [game.title for game in games] == ["Snake", "Breakout"]
-    assert callable(games[0].create_scene)
-    assert callable(games[1].create_scene)
+    assert [game.id for game in games] == ["snake", "blockfall", "breakout"]
+    assert [game.title for game in games] == ["Snake", "Blockfall", "Breakout"]
+    assert all(callable(game.create_scene) for game in games)

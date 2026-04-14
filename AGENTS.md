@@ -6,7 +6,7 @@ This repository is a small desktop minigame collection built with `pygame` and m
 The current v1 scope is:
 
 - a reusable collection launcher
-- one registered game: Snake
+- registered games: Snake and Blockfall
 - tests for core game logic
 - local and CI checks through `pre-commit`, `ruff`, and `pytest`
 
@@ -48,6 +48,14 @@ uv run pre-commit run --all-files
 - Keep the windowed desktop flow intact: launcher -> game -> restart/menu.
 - Use code-drawn visuals unless the task explicitly introduces assets.
 - Favor small, composable modules over large monolithic files.
+
+## UI Layout Guard Rails
+
+- Do not place text with fixed font sizes into constrained panels unless width and height have both been checked.
+- For new UI text, prefer the helpers in `src/minigame_collection/ui/text.py` so labels are fitted or wrapped to their bounding area before rendering.
+- Treat vertical fit as a first-class constraint: line height × line count must fit the allotted space, not just the width of each line.
+- When adding a new HUD, overlay, or menu card, leave explicit bottom padding so status text, controls, and footer text cannot collide.
+- If scene layout changes, run a smoke check and visually sanity-check that no text clips, overlaps, or renders outside its panel at the default window size.
 
 ## Testing Expectations
 
