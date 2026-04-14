@@ -5,6 +5,7 @@ from ..scores import LeaderboardStore
 from .breakout.scene import create_breakout_scene
 from .blockfall.scene import create_blockfall_scene
 from .snake.scene import create_snake_scene
+from .starfighter.scene import create_starfighter_scene
 
 
 def build_game_registry(score_store: LeaderboardStore) -> GameRegistry:
@@ -27,6 +28,12 @@ def build_game_registry(score_store: LeaderboardStore) -> GameRegistry:
                 title="Breakout",
                 description="Angle the paddle, shatter the brick wall, and chase a high score.",
                 create_scene=lambda: create_breakout_scene(score_store),
+            ),
+            GameDefinition(
+                id="starfighter",
+                title="Starfighter",
+                description="Fly the lane, shred incoming waves, and survive the rising pressure.",
+                create_scene=lambda: create_starfighter_scene(score_store),
             ),
         )
     )
