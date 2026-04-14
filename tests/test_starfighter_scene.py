@@ -6,7 +6,7 @@ import pygame
 import pytest
 
 from minigame_collection.config import APP_CONFIG
-from minigame_collection.games.starfighter.logic import StarfighterPhase
+from minigame_collection.games.starfighter.logic import Mine, Projectile, StarfighterPhase, Vector
 from minigame_collection.games.starfighter.scene import StarfighterScene, StarfighterSceneMode
 from minigame_collection.scene import ShowMenu
 from minigame_collection.scores import ScoreEntry
@@ -124,6 +124,7 @@ def test_enter_from_results_restarts_fresh_run() -> None:
     assert scene._game.state.score == 0
     assert scene._game.state.shields == 3
     assert scene._game.state.enemies == ()
+    assert scene._game.state.mines == ()
 
 
 def test_escape_from_results_returns_to_menu() -> None:
@@ -166,6 +167,13 @@ def test_held_input_is_ignored_outside_play_and_restart_clears_it() -> None:
 def test_render_smoke_for_play_and_results() -> None:
     scene = StarfighterScene(FakeScoreStore())
     surface = pygame.Surface(APP_CONFIG.window_size)
+    scene._game.state = replace(
+        scene._game.state,
+        mines=(Mine(position=Vector(420.0, 220.0), ttl=3.0, pulse=0.0),),
+        enemy_projectiles=(
+            Projectile(position=Vector(360.0, 160.0), velocity=Vector(-240.0, 120.0), radius=6.0),
+        ),
+    )
 
     scene.render(surface)
 

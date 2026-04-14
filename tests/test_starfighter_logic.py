@@ -12,6 +12,7 @@ from minigame_collection.games.starfighter.logic import (
     FULL_SHIELD_SCORE_BONUS,
     GUNSHIP_SCORE,
     MAX_SHIELDS,
+    MINE_RADIUS,
     PICKUP_SCORE_BONUS,
     PLAYER_RADIUS,
     Projectile,
@@ -20,8 +21,10 @@ from minigame_collection.games.starfighter.logic import (
     START_SCROLL_SPEED,
     START_SPAWN_INTERVAL,
     SWOOPER_SCORE,
+    TARGETED_JITTER,
     Enemy,
     EnemyKind,
+    Mine,
     StarfighterGame,
     StarfighterPhase,
     Vector,
@@ -32,8 +35,8 @@ BOARD_WIDTH = 704
 BOARD_HEIGHT = 512
 
 
-def make_game() -> StarfighterGame:
-    return StarfighterGame(BOARD_WIDTH, BOARD_HEIGHT, rng=random.Random(3))
+def make_game(seed: int = 3) -> StarfighterGame:
+    return StarfighterGame(BOARD_WIDTH, BOARD_HEIGHT, rng=random.Random(seed))
 
 
 def test_initial_state_starts_in_playing_mode() -> None:
@@ -47,6 +50,7 @@ def test_initial_state_starts_in_playing_mode() -> None:
     assert game.state.kills == 0
     assert game.state.enemies == ()
     assert game.state.pickups == ()
+    assert game.state.mines == ()
     assert game.current_scroll_speed == START_SCROLL_SPEED
     assert game.current_spawn_interval == START_SPAWN_INTERVAL
 
@@ -93,6 +97,34 @@ def test_auto_fire_cadence_respects_weapon_levels() -> None:
     assert len(game.state.player_projectiles) == 4
 
 
+def test_targeted_wave_spawns_near_player_lane_after_six_seconds() -> None:
+    game = make_game()
+    player = Vector(140.0, 230.0)
+    game._wave_count = 5
+
+    enemies, mines = game._spawn_wave(6.1, player)
+
+    assert mines == []
+    assert enemies
+    assert any(abs(enemy.base_y - player.y) <= TARGETED_JITTER + 1.0 for enemy in enemies)
+
+
+def test_minefield_waves_spawn_expected_mine_counts() -> None:
+    game = make_game()
+    player = Vector(140.0, 260.0)
+
+    game._wave_count = 7
+    _, early_mines = game._spawn_wave(8.1, player)
+    assert len(early_mines) == 1
+    assert early_mines[0].position.y == player.y
+
+    game._wave_count = 11
+    _, late_mines = game._spawn_wave(30.1, player)
+    assert len(late_mines) == 2
+    assert any(mine.position.y == player.y for mine in late_mines)
+    assert any(mine.position.y != player.y for mine in late_mines)
+
+
 def test_drone_moves_straight_left() -> None:
     game = make_game()
     game._auto_fire_timer = 999.0
@@ -104,6 +136,8 @@ def test_drone_moves_straight_left() -> None:
         age=0.0,
         phase=0.0,
         fire_timer=1.0,
+        burst_shots_remaining=0,
+        burst_timer=0.0,
     )
     game.state = replace(game.state, enemies=(enemy,))
 
@@ -124,6 +158,8 @@ def test_swooper_oscillates_while_moving_left() -> None:
         age=0.0,
         phase=0.0,
         fire_timer=1.0,
+        burst_shots_remaining=0,
+        burst_timer=0.0,
     )
     game.state = replace(game.state, enemies=(enemy,))
 
@@ -133,24 +169,41 @@ def test_swooper_oscillates_while_moving_left() -> None:
     assert game.state.enemies[0].position.y > 220.0
 
 
-def test_gunship_fires_leftward_projectiles() -> None:
+def test_gunship_unlocks_earlier_and_fires_aimed_bursts() -> None:
     game = make_game()
+
+    game.state = replace(game.state, elapsed_time=24.0)
+    assert game.available_enemy_kinds == (
+        EnemyKind.DRONE,
+        EnemyKind.SWOOPER,
+        EnemyKind.GUNSHIP,
+    )
+
     game._auto_fire_timer = 999.0
     game._spawn_timer = 999.0
+    player = Vector(120.0, 280.0)
     enemy = Enemy(
         kind=EnemyKind.GUNSHIP,
-        position=Vector(460.0, 240.0),
-        base_y=240.0,
+        position=Vector(460.0, 160.0),
+        base_y=160.0,
         age=0.0,
         phase=0.0,
-        fire_timer=0.03,
+        fire_timer=0.01,
+        burst_shots_remaining=0,
+        burst_timer=0.0,
     )
-    game.state = replace(game.state, enemies=(enemy,))
+    game.state = replace(game.state, player_position=player, enemies=(enemy,))
 
-    game.step(0.06)
+    game.step(0.02)
 
     assert len(game.state.enemy_projectiles) == 1
-    assert game.state.enemy_projectiles[0].velocity == Vector(-ENEMY_PROJECTILE_SPEED, 0.0)
+    first_shot = game.state.enemy_projectiles[0]
+    assert first_shot.velocity.x < 0.0
+    assert first_shot.velocity.y > 0.0
+
+    game.step(0.12)
+
+    assert len(game.state.enemy_projectiles) == 2
 
 
 def test_destroying_seventh_enemy_scores_and_spawns_weapon_pickup() -> None:
@@ -164,6 +217,8 @@ def test_destroying_seventh_enemy_scores_and_spawns_weapon_pickup() -> None:
         age=0.0,
         phase=0.0,
         fire_timer=1.0,
+        burst_shots_remaining=0,
+        burst_timer=0.0,
     )
     projectile = Projectile(
         position=enemy.position,
@@ -217,6 +272,39 @@ def test_collecting_pickups_upgrades_ship_and_awards_bonuses() -> None:
     assert game.state.score == FULL_SHIELD_SCORE_BONUS + PICKUP_SCORE_BONUS
 
 
+def test_player_shots_do_not_remove_mines() -> None:
+    game = make_game()
+    game._auto_fire_timer = 999.0
+    game._spawn_timer = 999.0
+    mine = Mine(position=Vector(360.0, 240.0), ttl=4.0, pulse=0.0)
+    projectile = Projectile(position=mine.position, velocity=Vector(0.0, 0.0), radius=6.0)
+    game.state = replace(game.state, mines=(mine,), player_projectiles=(projectile,))
+
+    game.step(1.0 / 120.0)
+
+    assert len(game.state.mines) == 1
+
+
+def test_mines_drift_left_and_damage_on_contact() -> None:
+    game = make_game()
+    game._auto_fire_timer = 999.0
+    game._spawn_timer = 999.0
+    drifting_mine = Mine(position=Vector(400.0, 220.0), ttl=0.2, pulse=0.0)
+    game.state = replace(game.state, mines=(drifting_mine,))
+
+    game.step(0.05)
+
+    assert game.state.mines[0].position.x < 400.0
+
+    contact_mine = Mine(position=game.state.player_position, ttl=4.0, pulse=0.0)
+    game.state = replace(game.state, mines=(contact_mine,), shields=MAX_SHIELDS)
+
+    game.step(1.0 / 120.0)
+
+    assert game.state.shields == MAX_SHIELDS - 1
+    assert game.state.mines == ()
+
+
 def test_damage_grants_invulnerability_and_prevents_chain_hits() -> None:
     game = make_game()
     game._auto_fire_timer = 999.0
@@ -251,10 +339,10 @@ def test_difficulty_progression_unlocks_enemy_types_and_faster_pacing() -> None:
 
     assert game.available_enemy_kinds == (EnemyKind.DRONE,)
 
-    game.state = replace(game.state, elapsed_time=15.0)
+    game.state = replace(game.state, elapsed_time=12.0)
     assert game.available_enemy_kinds == (EnemyKind.DRONE, EnemyKind.SWOOPER)
 
-    game.state = replace(game.state, elapsed_time=40.0)
+    game.state = replace(game.state, elapsed_time=24.0)
     assert game.available_enemy_kinds == (
         EnemyKind.DRONE,
         EnemyKind.SWOOPER,
@@ -264,6 +352,20 @@ def test_difficulty_progression_unlocks_enemy_types_and_faster_pacing() -> None:
     game.state = replace(game.state, elapsed_time=60.0)
     assert game.current_scroll_speed == 196.0
     assert game.current_spawn_interval == pytest.approx(0.8)
+
+
+def test_stationary_runs_now_fail_well_before_the_old_safe_window() -> None:
+    survivals: list[float] = []
+    for seed in range(6):
+        game = make_game(seed)
+        delta_seconds = 1.0 / 120.0
+        for _ in range(120 * 120):
+            if game.state.phase is StarfighterPhase.LOST:
+                break
+            game.step(delta_seconds)
+        survivals.append(game.state.elapsed_time)
+
+    assert max(survivals) < 70.0
 
 
 def test_losing_last_shield_ends_the_run() -> None:
@@ -283,3 +385,4 @@ def test_losing_last_shield_ends_the_run() -> None:
 
 def test_enemy_scores_match_their_kind_values() -> None:
     assert DRONE_SCORE < SWOOPER_SCORE < GUNSHIP_SCORE
+    assert MINE_RADIUS > 0.0

@@ -16,6 +16,13 @@ SPAWN_INTERVAL_STEP = 0.08
 SPAWN_INTERVAL_STEP_SECONDS = 12.0
 MIN_SPAWN_INTERVAL = 0.35
 
+TARGETED_WAVE_START_SECONDS = 6.0
+MINEFIELD_START_SECONDS = 8.0
+SWOOPER_UNLOCK_SECONDS = 12.0
+GUNSHIP_UNLOCK_SECONDS = 24.0
+SECOND_MINEFIELD_SECONDS = 30.0
+TARGETED_JITTER = 20.0
+
 PLAYER_RADIUS = 18.0
 PLAYER_SPEED = 320.0
 MAX_SHIELDS = 3
@@ -36,9 +43,15 @@ AUTO_FIRE_INTERVALS = {
 }
 
 ENEMY_PROJECTILE_RADIUS = 6.0
-ENEMY_PROJECTILE_SPEED = 280.0
-GUNSHIP_FIRE_INTERVAL = 1.35
-GUNSHIP_FIRE_INITIAL_DELAY = 0.55
+ENEMY_PROJECTILE_SPEED = 380.0
+GUNSHIP_BURST_INTERVAL = 1.10
+GUNSHIP_BURST_SPACING = 0.12
+GUNSHIP_FIRE_INITIAL_DELAY = 0.75
+
+MINE_RADIUS = 17.0
+MINE_DRIFT_SPEED = 180.0
+MINE_TTL_SECONDS = 4.8
+MINE_OFFSET_DISTANCE = 84.0
 
 DISTANCE_PIXELS_PER_POINT = 10.0
 PICKUP_DROP_EVERY_KILLS = 7
@@ -97,6 +110,8 @@ class Enemy:
     age: float
     phase: float
     fire_timer: float
+    burst_shots_remaining: int
+    burst_timer: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +120,13 @@ class Pickup:
     position: Vector
     base_y: float
     age: float
+
+
+@dataclass(frozen=True, slots=True)
+class Mine:
+    position: Vector
+    ttl: float
+    pulse: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +145,7 @@ class StarfighterState:
     player_projectiles: tuple[Projectile, ...]
     enemy_projectiles: tuple[Projectile, ...]
     pickups: tuple[Pickup, ...]
+    mines: tuple[Mine, ...]
     elapsed_time: float
     distance: int
     score: int
@@ -142,6 +165,7 @@ FORMATION_PATTERNS = (
     ((0.0, 0.0), (58.0, -60.0), (58.0, 60.0)),
     ((0.0, -72.0), (42.0, 0.0), (84.0, 72.0)),
 )
+PINCH_PATTERN = ((0.0, -68.0), (40.0, 0.0), (0.0, 68.0))
 
 
 class StarfighterGame:
@@ -233,6 +257,7 @@ class StarfighterGame:
             max_x=self.board_width + ENEMY_PROJECTILE_RADIUS,
         )
         pickups = self._advance_pickups(previous_state.pickups, scroll_speed, delta_seconds)
+        mines = self._advance_mines(previous_state.mines, scroll_speed, delta_seconds)
 
         enemies: list[Enemy] = []
         for enemy in previous_state.enemies:
@@ -240,6 +265,7 @@ class StarfighterGame:
                 enemy,
                 scroll_speed,
                 delta_seconds,
+                player_position,
             )
             enemy_projectiles.extend(fired_projectiles)
             if advanced_enemy is not None:
@@ -247,7 +273,9 @@ class StarfighterGame:
 
         self._spawn_timer -= delta_seconds
         while self._spawn_timer <= 0.0:
-            enemies.extend(self._spawn_wave(elapsed_time))
+            spawned_enemies, spawned_mines = self._spawn_wave(elapsed_time, player_position)
+            enemies.extend(spawned_enemies)
+            mines.extend(spawned_mines)
             self._spawn_timer += spawn_interval
 
         (
@@ -275,8 +303,9 @@ class StarfighterGame:
         )
         events.extend(pickup_events)
 
-        enemies, enemy_projectiles, shields, invulnerability, damage_events = (
+        mines, enemies, enemy_projectiles, shields, invulnerability, damage_events = (
             self._resolve_player_damage(
+                mines,
                 enemies,
                 enemy_projectiles,
                 player_position,
@@ -306,6 +335,7 @@ class StarfighterGame:
             player_projectiles=tuple(player_projectiles),
             enemy_projectiles=tuple(enemy_projectiles),
             pickups=tuple(pickups),
+            mines=tuple(mines),
             elapsed_time=elapsed_time,
             distance=distance,
             score=score,
@@ -325,6 +355,7 @@ class StarfighterGame:
             player_projectiles=(),
             enemy_projectiles=(),
             pickups=(),
+            mines=(),
             elapsed_time=0.0,
             distance=0,
             score=0,
@@ -409,11 +440,27 @@ class StarfighterGame:
                 )
         return advanced
 
+    def _advance_mines(
+        self,
+        mines: tuple[Mine, ...],
+        scroll_speed: float,
+        delta_seconds: float,
+    ) -> list[Mine]:
+        advanced: list[Mine] = []
+        drift_speed = max(MINE_DRIFT_SPEED, scroll_speed * 0.82)
+        for mine in mines:
+            ttl = mine.ttl - delta_seconds
+            position = mine.position.translated(dx=-drift_speed * delta_seconds)
+            if ttl > 0.0 and position.x >= -MINE_RADIUS * 2.0:
+                advanced.append(Mine(position=position, ttl=ttl, pulse=mine.pulse))
+        return advanced
+
     def _advance_enemy(
         self,
         enemy: Enemy,
         scroll_speed: float,
         delta_seconds: float,
+        player_position: Vector,
     ) -> tuple[Enemy | None, list[Projectile]]:
         age = enemy.age + delta_seconds
         x_speed = scroll_speed + enemy_speed_for_kind(enemy.kind)
@@ -423,18 +470,44 @@ class StarfighterGame:
             position_y = enemy.base_y + math.sin(enemy.phase + age * SWOOPER_FREQUENCY) * SWOOPER_AMPLITUDE
 
         fire_timer = enemy.fire_timer
+        burst_shots_remaining = enemy.burst_shots_remaining
+        burst_timer = enemy.burst_timer
         spawned_projectiles: list[Projectile] = []
+
         if enemy.kind is EnemyKind.GUNSHIP:
-            fire_timer -= delta_seconds
-            while fire_timer <= 0.0:
-                spawned_projectiles.append(
-                    Projectile(
-                        position=Vector(position_x - 18.0, position_y),
-                        velocity=Vector(-ENEMY_PROJECTILE_SPEED, 0.0),
-                        radius=ENEMY_PROJECTILE_RADIUS,
+            if burst_shots_remaining > 0:
+                burst_timer -= delta_seconds
+                while burst_shots_remaining > 0 and burst_timer <= 0.0:
+                    spawned_projectiles.append(
+                        Projectile(
+                            position=Vector(position_x - 18.0, position_y),
+                            velocity=_aimed_velocity(
+                                Vector(position_x - 18.0, position_y),
+                                player_position,
+                                ENEMY_PROJECTILE_SPEED,
+                            ),
+                            radius=ENEMY_PROJECTILE_RADIUS,
+                        )
                     )
-                )
-                fire_timer += GUNSHIP_FIRE_INTERVAL
+                    burst_shots_remaining -= 1
+                    burst_timer += GUNSHIP_BURST_SPACING
+            else:
+                fire_timer -= delta_seconds
+                while fire_timer <= 0.0:
+                    spawned_projectiles.append(
+                        Projectile(
+                            position=Vector(position_x - 18.0, position_y),
+                            velocity=_aimed_velocity(
+                                Vector(position_x - 18.0, position_y),
+                                player_position,
+                                ENEMY_PROJECTILE_SPEED,
+                            ),
+                            radius=ENEMY_PROJECTILE_RADIUS,
+                        )
+                    )
+                    fire_timer += GUNSHIP_BURST_INTERVAL
+                    burst_shots_remaining = 1
+                    burst_timer = GUNSHIP_BURST_SPACING
 
         position = Vector(position_x, position_y)
         if position_x < -enemy_radius_for_kind(enemy.kind) * 2.0:
@@ -448,23 +521,38 @@ class StarfighterGame:
                 age=age,
                 phase=enemy.phase,
                 fire_timer=fire_timer,
+                burst_shots_remaining=burst_shots_remaining,
+                burst_timer=burst_timer,
             ),
             spawned_projectiles,
         )
 
-    def _spawn_wave(self, elapsed_time: float) -> list[Enemy]:
+    def _spawn_wave(
+        self,
+        elapsed_time: float,
+        player_position: Vector,
+    ) -> tuple[list[Enemy], list[Mine]]:
         tier = difficulty_tier_for_elapsed(elapsed_time)
-        pattern = formation_pattern_for_tier(tier, self._wave_count)
+        wave_number = self._wave_count + 1
+        targeted = elapsed_time >= TARGETED_WAVE_START_SECONDS and wave_number % 3 == 0
+        minefield = elapsed_time >= MINEFIELD_START_SECONDS and wave_number % 4 == 0
+        pattern = formation_pattern_for_tier(tier, self._wave_count, targeted=targeted)
         kind = available_enemy_kinds_for_elapsed(elapsed_time)[
             self._wave_count % len(available_enemy_kinds_for_elapsed(elapsed_time))
         ]
+
         vertical_padding = SPAWN_MARGIN + max(abs(offset_y) for _, offset_y in pattern)
         if kind is EnemyKind.SWOOPER:
             vertical_padding += SWOOPER_AMPLITUDE
-        anchor_y = self._rng.uniform(
-            vertical_padding,
-            self.board_height - vertical_padding,
-        )
+
+        if targeted:
+            anchor_y = _clamp(
+                player_position.y + self._rng.uniform(-TARGETED_JITTER, TARGETED_JITTER),
+                minimum=vertical_padding,
+                maximum=self.board_height - vertical_padding,
+            )
+        else:
+            anchor_y = self._rng.uniform(vertical_padding, self.board_height - vertical_padding)
 
         enemies: list[Enemy] = []
         for offset_x, offset_y in pattern:
@@ -481,11 +569,48 @@ class StarfighterGame:
                     age=0.0,
                     phase=phase,
                     fire_timer=GUNSHIP_FIRE_INITIAL_DELAY,
+                    burst_shots_remaining=0,
+                    burst_timer=0.0,
                 )
             )
 
+        mines = self._spawn_minefield(elapsed_time, player_position, minefield)
         self._wave_count += 1
-        return enemies
+        return enemies, mines
+
+    def _spawn_minefield(
+        self,
+        elapsed_time: float,
+        player_position: Vector,
+        minefield: bool,
+    ) -> list[Mine]:
+        if not minefield:
+            return []
+
+        mines = [
+            Mine(
+                position=Vector(self.board_width + 68.0, player_position.y),
+                ttl=MINE_TTL_SECONDS,
+                pulse=self._rng.uniform(0.0, math.tau),
+            )
+        ]
+        if elapsed_time < SECOND_MINEFIELD_SECONDS:
+            return mines
+
+        direction = -1.0 if player_position.y > self.board_height / 2.0 else 1.0
+        second_y = _clamp(
+            player_position.y + direction * MINE_OFFSET_DISTANCE,
+            minimum=MINE_RADIUS + 12.0,
+            maximum=self.board_height - MINE_RADIUS - 12.0,
+        )
+        mines.append(
+            Mine(
+                position=Vector(self.board_width + 122.0, second_y),
+                ttl=MINE_TTL_SECONDS,
+                pulse=self._rng.uniform(0.0, math.tau),
+            )
+        )
+        return mines
 
     def _resolve_player_projectile_hits(
         self,
@@ -567,16 +692,29 @@ class StarfighterGame:
 
     def _resolve_player_damage(
         self,
+        mines: list[Mine],
         enemies: list[Enemy],
         enemy_projectiles: list[Projectile],
         player_position: Vector,
         shields: int,
         invulnerability: float,
-    ) -> tuple[list[Enemy], list[Projectile], int, float, list[StarfighterEvent]]:
+    ) -> tuple[list[Mine], list[Enemy], list[Projectile], int, float, list[StarfighterEvent]]:
+        kept_mines: list[Mine] = []
         kept_enemies: list[Enemy] = []
         kept_projectiles: list[Projectile] = []
         events: list[StarfighterEvent] = []
         took_damage = False
+
+        for mine in mines:
+            collided = _circles_overlap(player_position, PLAYER_RADIUS, mine.position, MINE_RADIUS)
+            if not collided:
+                kept_mines.append(mine)
+                continue
+            if invulnerability <= 0.0 and not took_damage:
+                shields -= 1
+                invulnerability = INVULNERABILITY_DURATION
+                took_damage = True
+                events.append(StarfighterEvent("player_hit", player_position))
 
         for enemy in enemies:
             collided = _circles_overlap(
@@ -610,7 +748,7 @@ class StarfighterGame:
                 took_damage = True
                 events.append(StarfighterEvent("player_hit", player_position))
 
-        return kept_enemies, kept_projectiles, max(shields, 0), invulnerability, events
+        return kept_mines, kept_enemies, kept_projectiles, max(shields, 0), invulnerability, events
 
     def _spawn_auto_fire(
         self,
@@ -625,7 +763,10 @@ class StarfighterGame:
             for offset_y in PLAYER_SHOT_OFFSETS[weapon_level]:
                 player_projectiles.append(
                     Projectile(
-                        position=Vector(player_position.x + PLAYER_RADIUS + 8.0, player_position.y + offset_y),
+                        position=Vector(
+                            player_position.x + PLAYER_RADIUS + 8.0,
+                            player_position.y + offset_y,
+                        ),
                         velocity=Vector(PLAYER_SHOT_SPEED, 0.0),
                         radius=PLAYER_SHOT_RADIUS,
                     )
@@ -635,7 +776,7 @@ class StarfighterGame:
 
 
 def auto_fire_interval_for_weapon(weapon_level: int) -> float:
-    return AUTO_FIRE_INTERVALS[_clamp(weapon_level, minimum=1, maximum=MAX_WEAPON_LEVEL)]
+    return AUTO_FIRE_INTERVALS[int(_clamp(weapon_level, minimum=1, maximum=MAX_WEAPON_LEVEL))]
 
 
 def difficulty_tier_for_elapsed(elapsed_time: float) -> int:
@@ -653,14 +794,21 @@ def spawn_interval_for_elapsed(elapsed_time: float) -> float:
 
 
 def available_enemy_kinds_for_elapsed(elapsed_time: float) -> tuple[EnemyKind, ...]:
-    if elapsed_time >= 40.0:
+    if elapsed_time >= GUNSHIP_UNLOCK_SECONDS:
         return (EnemyKind.DRONE, EnemyKind.SWOOPER, EnemyKind.GUNSHIP)
-    if elapsed_time >= 15.0:
+    if elapsed_time >= SWOOPER_UNLOCK_SECONDS:
         return (EnemyKind.DRONE, EnemyKind.SWOOPER)
     return (EnemyKind.DRONE,)
 
 
-def formation_pattern_for_tier(tier: int, wave_count: int) -> tuple[tuple[float, float], ...]:
+def formation_pattern_for_tier(
+    tier: int,
+    wave_count: int,
+    *,
+    targeted: bool,
+) -> tuple[tuple[float, float], ...]:
+    if targeted:
+        return PINCH_PATTERN
     if tier < 2:
         return FORMATION_PATTERNS[0]
     if tier < 4:
@@ -715,6 +863,11 @@ def _normalized_vector(vector: Vector) -> Vector:
     if length == 0.0:
         return Vector(0.0, 0.0)
     return Vector(vector.x / length, vector.y / length)
+
+
+def _aimed_velocity(origin: Vector, target: Vector, speed: float) -> Vector:
+    direction = _normalized_vector(Vector(target.x - origin.x, target.y - origin.y))
+    return Vector(direction.x * speed, direction.y * speed)
 
 
 def _circles_overlap(center_a: Vector, radius_a: float, center_b: Vector, radius_b: float) -> bool:

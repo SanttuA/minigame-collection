@@ -11,6 +11,7 @@ from ...scene import SceneCommand, ShowMenu
 from ...scores import LEADERBOARD_LIMIT, LeaderboardStore, ScoreEntry
 from ...ui import fit_font, wrap_text
 from .logic import (
+    MINE_RADIUS,
     MAX_SHIELDS,
     MAX_WEAPON_LEVEL,
     PLAYER_RADIUS,
@@ -36,6 +37,8 @@ SHIP_MAIN = (130, 225, 255)
 SHIP_SHADOW = (51, 102, 140)
 PLAYER_SHOT = (136, 245, 255)
 ENEMY_SHOT = (255, 142, 118)
+MINE_MAIN = (255, 126, 104)
+MINE_CORE = (255, 221, 128)
 WEAPON_PICKUP = (133, 226, 255)
 SHIELD_PICKUP = (136, 255, 176)
 SCORE_PICKUP = (255, 211, 114)
@@ -394,6 +397,7 @@ class StarfighterScene:
 
         self._draw_starfield(surface, playfield_rect)
         self._draw_pickups(surface)
+        self._draw_mines(surface)
         self._draw_enemy_projectiles(surface)
         self._draw_player_projectiles(surface)
         self._draw_enemies(surface)
@@ -541,8 +545,41 @@ class StarfighterScene:
     def _draw_enemy_projectiles(self, surface: pygame.Surface) -> None:
         for projectile in self._game.state.enemy_projectiles:
             center_x, center_y = self._screen_point(projectile.position)
+            tail_length = max(8.0, math.hypot(projectile.velocity.x, projectile.velocity.y) / 34.0)
+            tail_direction = math.atan2(projectile.velocity.y, projectile.velocity.x)
+            tail_x = center_x - math.cos(tail_direction) * tail_length
+            tail_y = center_y - math.sin(tail_direction) * tail_length
+            pygame.draw.line(
+                surface,
+                (255, 205, 164),
+                (round(tail_x), round(tail_y)),
+                (center_x, center_y),
+                2,
+            )
             pygame.draw.circle(surface, ENEMY_SHOT, (center_x, center_y), int(projectile.radius))
             pygame.draw.circle(surface, (255, 229, 182), (center_x - 1, center_y - 1), 2)
+
+    def _draw_mines(self, surface: pygame.Surface) -> None:
+        for mine in self._game.state.mines:
+            center_x, center_y = self._screen_point(mine.position)
+            pulse = (math.sin(self._elapsed * 7.0 + mine.pulse) + 1.0) / 2.0
+            outer_radius = int(MINE_RADIUS + 2 + pulse * 2)
+            pygame.draw.circle(surface, (120, 39, 43), (center_x, center_y), outer_radius)
+
+            spikes: list[tuple[int, int]] = []
+            for index in range(8):
+                angle = mine.pulse + index * (math.tau / 8.0)
+                length = outer_radius + 5 + (2 if index % 2 == 0 else 0)
+                spikes.append(
+                    (
+                        round(center_x + math.cos(angle) * length),
+                        round(center_y + math.sin(angle) * length),
+                    )
+                )
+            pygame.draw.polygon(surface, MINE_MAIN, spikes)
+            pygame.draw.circle(surface, MINE_MAIN, (center_x, center_y), int(MINE_RADIUS - 2))
+            pygame.draw.circle(surface, MINE_CORE, (center_x, center_y), int(MINE_RADIUS - 8))
+            pygame.draw.circle(surface, (255, 255, 255), (center_x - 2, center_y - 2), 3)
 
     def _draw_pickups(self, surface: pygame.Surface) -> None:
         for pickup in self._game.state.pickups:
