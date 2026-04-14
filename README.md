@@ -42,6 +42,7 @@ uv run minigame-collection
 - `Snake`: grow longer, avoid collisions, and chase faster pacing.
 - `Blockfall`: stack falling pieces into complete lines before the board fills up.
 - `Breakout`: guide the paddle, ricochet the ball, and clear the brick wall.
+- `Starfighter`: surf the scrolling lane, auto-fire through enemy waves, and last as long as you can.
 
 ### Snake
 
@@ -70,6 +71,15 @@ uv run minigame-collection
 - `Esc`: return to the menu
 - missing the ball costs one of three lives
 - qualifying scores prompt for a short nickname on the results flow
+
+### Starfighter
+
+- `Arrows` / `WASD`: move the ship
+- auto-fire is always on
+- `Esc`: return to the menu
+- survive incoming drones, swoopers, and gunships while the scroll speed ramps up
+- pickups rotate through weapon boosts, shield repair, and score bonuses
+- qualifying scores prompt for a short nickname on game over
 
 ## Development
 
