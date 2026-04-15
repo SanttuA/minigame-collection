@@ -67,7 +67,7 @@ version_file.write_text(
 )
 
 a = Analysis(
-    [str(SRC_ROOT / "minigame_collection" / "__main__.py")],
+    [str(PROJECT_ROOT / "packaging" / "windows" / "launcher.py")],
     pathex=[str(SRC_ROOT)],
     binaries=collect_dynamic_libs("pygame"),
     datas=collect_data_files("pygame") + RELEASE_NOTICES,
