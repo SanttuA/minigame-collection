@@ -1,6 +1,20 @@
 # Minigame Collection
 
-A small desktop minigame collection built with `pygame` and managed with `uv`. Playable games launch from a reusable collection menu so more arcade experiments can be added later without changing the app entrypoint.
+A desktop minigame collection built with `pygame` and managed with `uv`. Playable games launch from a reusable collection menu so more arcade experiments can be added later without changing the app entrypoint.
+
+## Windows Release
+
+The first public release is `v1.0.0` and ships as a Windows portable zip.
+
+1. Download `minigame-collection-windows-x64-v1.0.0.zip` from GitHub Releases.
+2. Extract the zip to a normal folder such as `Downloads` or `Desktop`.
+3. Run `Minigame Collection.exe`.
+
+Notes:
+
+- The Windows build is unsigned for v1, so SmartScreen may show an unknown publisher warning before launch.
+- Saved scores are stored in `%LOCALAPPDATA%\Minigame Collection\scores.db`, so they survive replacing the extracted app folder with a newer version.
+- macOS and Linux can still run the project from source.
 
 ## Requirements
 
@@ -14,7 +28,7 @@ uv sync
 
 This project targets Python `3.12`.
 
-## Run
+## Run From Source
 
 Launch through the package module:
 
@@ -27,6 +41,16 @@ Or use the console entrypoint:
 ```bash
 uv run minigame-collection
 ```
+
+## Windows Packaging
+
+Build the Windows release on a Windows machine:
+
+```powershell
+./scripts/build_windows.ps1
+```
+
+Packaging details and the manual smoke checklist live in [packaging/windows/README.md](packaging/windows/README.md).
 
 ## Controls
 
@@ -108,6 +132,16 @@ Run all hooks manually:
 ```bash
 uv run pre-commit run --all-files
 ```
+
+Smoke-test app startup:
+
+```bash
+uv run python scripts/smoke_startup.py
+```
+
+Release notes for the first public version live in [docs/release-notes-v1.0.0.md](docs/release-notes-v1.0.0.md).
+
+Project licensing is covered by [LICENSE](LICENSE), and shipped dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Git Workflow
 

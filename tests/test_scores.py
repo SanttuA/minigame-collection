@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 
+import pytest
+
+from minigame_collection.metadata import APP_NAME
 from minigame_collection.scores import LEADERBOARD_LIMIT, SQLiteScoreStore
+from minigame_collection.scores import resolve_scores_database_path
 
 
 def test_schema_is_initialized_for_empty_database(tmp_path: Path) -> None:
@@ -66,3 +71,23 @@ def test_top_scores_are_filtered_by_game_id(tmp_path: Path) -> None:
     assert len(snake_scores) == 1
     assert snake_scores[0].player_name == "cobra"
     assert snake_scores[0].score == 12
+
+
+def test_resolve_scores_database_path_uses_repo_root_for_source_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    expected = Path(__file__).resolve().parents[1] / "scores.db"
+
+    assert resolve_scores_database_path() == expected
+
+
+def test_resolve_scores_database_path_uses_localappdata_for_frozen_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "Minigame Collection.exe"), raising=False)
+
+    assert resolve_scores_database_path() == tmp_path / APP_NAME / "scores.db"
