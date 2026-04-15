@@ -4,6 +4,7 @@ import pygame
 
 from .config import APP_CONFIG
 from .games import build_game_registry
+from .metadata import APP_NAME
 from .registry import GameRegistry
 from .scene import LaunchGame, QuitApp, Scene, SceneCommand, ShowMenu
 from .scenes.menu import MainMenuScene
@@ -34,7 +35,7 @@ class GameApp:
 
     def run(self) -> int:
         pygame.init()
-        pygame.display.set_caption("Minigame Collection")
+        pygame.display.set_caption(APP_NAME)
 
         screen = pygame.display.set_mode(APP_CONFIG.window_size)
         clock = pygame.time.Clock()

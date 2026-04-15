@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
+
+from .metadata import APP_NAME, SCORES_DB_FILENAME
 
 
 LEADERBOARD_LIMIT = 5
@@ -147,5 +150,8 @@ class SQLiteScoreStore:
 
 def resolve_scores_database_path() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "scores.db"
-    return Path(__file__).resolve().parents[2] / "scores.db"
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            return Path(local_appdata) / APP_NAME / SCORES_DB_FILENAME
+        return Path.home() / "AppData" / "Local" / APP_NAME / SCORES_DB_FILENAME
+    return Path(__file__).resolve().parents[2] / SCORES_DB_FILENAME

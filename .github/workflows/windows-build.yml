@@ -1,0 +1,61 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      UV_LINK_MODE: copy
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Resolve release metadata
+        shell: pwsh
+        run: |
+          $distDirName = uv run python -c "from minigame_collection.metadata import WINDOWS_DIST_DIR_NAME; print(WINDOWS_DIST_DIR_NAME)"
+          $archiveName = uv run python -c "from minigame_collection.metadata import WINDOWS_RELEASE_ARCHIVE_NAME; print(WINDOWS_RELEASE_ARCHIVE_NAME)"
+          $artifactName = uv run python -c "from minigame_collection.metadata import WINDOWS_RELEASE_ARCHIVE_NAME; print(WINDOWS_RELEASE_ARCHIVE_NAME.removesuffix('.zip'))"
+          "WINDOWS_DIST_DIR=$distDirName" >> $env:GITHUB_ENV
+          "WINDOWS_RELEASE_ARCHIVE=$archiveName" >> $env:GITHUB_ENV
+          "WINDOWS_RELEASE_ARTIFACT=$artifactName" >> $env:GITHUB_ENV
+
+      - name: Run lint
+        run: uv run ruff check .
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Smoke test source startup
+        run: uv run python scripts/smoke_startup.py
+
+      - name: Build Windows bundle
+        run: uv run pyinstaller packaging/windows/minigame_collection.spec --noconfirm --clean
+
+      - name: Archive Windows bundle
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\$env:WINDOWS_DIST_DIR\*" -DestinationPath "dist\$env:WINDOWS_RELEASE_ARCHIVE" -CompressionLevel Optimal
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_RELEASE_ARTIFACT }}
+          path: dist/${{ env.WINDOWS_RELEASE_ARCHIVE }}
+          if-no-files-found: error
