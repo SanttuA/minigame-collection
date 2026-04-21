@@ -2,6 +2,12 @@
 
 A desktop minigame collection built with `pygame` and managed with `uv`. Playable games launch from a reusable collection menu so more arcade experiments can be added later without changing the app entrypoint.
 
+## Preview
+
+![Minigame Collection launcher showing the game selection menu](docs/images/minigame-collection-menu.png)
+
+![Gameplay preview collage showing Snake, Blockfall, Breakout, and Starfighter](docs/images/minigame-collection-gameplay.png)
+
 ## Windows Release
 
 The first public release is `v1.0.0` and ships as a Windows portable zip.
